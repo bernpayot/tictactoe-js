@@ -7,32 +7,32 @@ const Gameboard = (function () {
   for (let i = 0; i < rows; i++) {
     board[i] = [];
     for (let j = 0; j < columns; j++) {
-      board[i].push(Cell());
+      board[i].push(Cell()); // adds a new Cell() object to the current row, one for each column
     }
   }
 
   const placeToken = (row, column, player) => {
-    const availableCells = board.filter((row) => row[column].getValue() === 0).map(row => row[column]);
-
-    if (!availableCells.length) return;
+    // checks whether the cell is filled
+    if (board[row][column].getValue() !== 0) return false;
 
     board[row][column].addToken(player);
-  };
-
-  const printBoard = () => {
-    const boardWithCellValues = board.map((row) => row.map((cell) => cell.getValue()))
-    console.log(boardWithCellValues);
+    return true;
   };
 
   const getBoard = () => board;
 
-  return { placeToken, printBoard, getBoard };
+  const resetBoard = () => {
+    board.forEach(row => {
+      row.forEach(cell => cell.resetCell());
+    });
+  };
+
+  return { placeToken, getBoard, resetBoard };
 })();
 
 // Cell function, this is not wrapped in IIFE since this is a reusable function
 function Cell() {
-  const noTokenInSquare = 0;
-  let value = noTokenInSquare;
+  let value = 0;
 
   const addToken = (player) => {
     value = player;
@@ -40,9 +40,12 @@ function Cell() {
 
   const getValue = () => value;
 
+  const resetCell = () => value = 0;
+  
   return {
     addToken,
-    getValue
+    getValue,
+    resetCell
   };
 }
 
@@ -50,15 +53,16 @@ function Cell() {
 const GameController = (function (
   playerOneName = "Player One",
   playerTwoName = "Player Two") {
+  let gameOver = false;
   const board = Gameboard;
   const players = [
     {
       name: playerOneName,
-      token: "x"
+      token: "✖"
     },
     {
       name: playerTwoName,
-      token: "o"
+      token: "◯"
     }
   ];
 
@@ -81,56 +85,108 @@ const GameController = (function (
   };
   const getActivePlayer = () => activePlayer;
 
-  const printNewRound = () => {
-    board.printBoard();
-    console.log(`${getActivePlayer().name}'s turn.`);
-  };
-
   const playRound = (row, column) => {
-    let hasWinner = 0;
+    if (gameOver) return "Game is already over.";
+    let hasWinner = false;
+    let boardValue = board.getBoard();    
     let currentPlayer = getActivePlayer();
-    console.log(`${getActivePlayer().name} has put his token on row ${row}, column ${column}!`);
-    board.placeToken(row, column, currentPlayer.token);
+    const success = board.placeToken(row, column, currentPlayer.token);
+    if (!success) return "Cell is already filled. Choose another.";
 
     for (let condition of winConditions) {
       const [a, b, c] = condition;
 
-      const posA = board.getBoard()[a[0]][a[1]].getValue();
-      const posB = board.getBoard()[b[0]][b[1]].getValue();
-      const posC = board.getBoard()[c[0]][c[1]].getValue();
+      // checks the positions of tokens and see if there are winning triplets
+      const posA = boardValue[a[0]][a[1]].getValue();
+      const posB = boardValue[b[0]][b[1]].getValue();
+      const posC = boardValue[c[0]][c[1]].getValue();
 
       if (posA === currentPlayer.token && posB === currentPlayer.token && posC === currentPlayer.token) {
-        hasWinner = 1;
+        hasWinner = true;
       }
     }
 
-    if (hasWinner === 1) {
-      board.printBoard();
-      console.log(`${currentPlayer.name} has won!`);
-      return;
+    if (hasWinner === true) {
+      gameOver = true;
+      return `${currentPlayer.name} has won!`;
     }
 
-    const allCells = board.getBoard().flat();
-    const isBoardFull = allCells.every(cell => cell.getValue() !== 0);
+    const allCells = boardValue.flat();
+    const isBoardFull = allCells.every(cell => cell.getValue() !== 0); // checks if each cell has a value
 
-    if (isBoardFull) {
-      board.printBoard();
-      console.log("It's a draw!");
-      return;
+    if (isBoardFull) { 
+      gameOver = true;
+      return `It's a draw!`;
     }
-    switchPlayerTurn();
-    printNewRound();      
-  };      
+    switchPlayerTurn();     
+
+    return `${getActivePlayer().name}'s turn.`
+  };   
   
-  printNewRound();
+  const resetGame = () => {
+    gameOver = false;
+    board.resetBoard();
+    activePlayer = players[0];
+  };
 
   return {
     playRound,
-    getActivePlayer
+    getActivePlayer,
+    resetGame,
+    getBoard: board.getBoard
   };
 })();
 
-const game = GameController;
+function ScreenController () {
+  const game = GameController;
+  const gameBoard = document.querySelector(".board");
+  const gameMessage = document.querySelector(".turn");
+  const restartButton = document.querySelector(".restart");
+  restartButton.addEventListener("click", () => {
+    game.resetGame();
+    updateScreen();
+    gameMessage.textContent = `${game.getActivePlayer().name}'s turn.`;
+  });
+
+  const updateScreen = () => {
+    gameBoard.textContent = "";
+
+    let currentBoard = game.getBoard();
+
+    currentBoard.forEach((row, rowIndex) => {
+      row.forEach((cell, colIndex) => {
+        const cellButton = document.createElement("button");
+        cellButton.classList.add("cell");
+
+        cellButton.dataset.row = rowIndex;
+        cellButton.dataset.column = colIndex;
+        cellButton.textContent = cell.getValue() === 0 ? "" : cell.getValue(); // if the value of a cell is 0, its changed to a string ""
+        cellButton.disabled = false;        
+        gameBoard.appendChild(cellButton);
+      })
+    })
+  }
+
+  function boardClickHandler(e) {
+    const { row, column } = e.target.dataset; // extracts the data-row and data-column attributes from the clicked element using destructuring
+    if (row === undefined || column === undefined) return; // checks if the clicked element has valid data-row and data-column attributes
+
+    const result = game.playRound(+row, +column);
+    updateScreen();
+    gameMessage.textContent = result;
+
+    if (result.includes("won") || result.includes("draw")) {
+      document.querySelectorAll(".cell").forEach(cell => cell.disabled = true);
+    }
+  }
+  gameBoard.addEventListener("click", boardClickHandler);
+
+  gameMessage.textContent = `${game.getActivePlayer().name}'s turn.`;
+  updateScreen();
+}
+
+ScreenController();
+
 
 
 
